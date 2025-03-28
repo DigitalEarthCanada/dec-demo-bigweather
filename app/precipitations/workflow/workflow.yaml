@@ -1,0 +1,195 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: precipitations-
+  # name: april-18-demo
+  # version: 1.0.0
+  # title: April 18 Demo
+  # description: This is a demo workflow template for the April 18th demo
+spec:
+  entrypoint: precipitations
+  artifactRepositoryRef:
+    configMap: artifact-repository
+  # artifactGC:
+  #   strategy: OnWorkflowCompletion
+  arguments:
+    parameters:
+    - name: "x"
+      value: "-123.116"
+    - name: "y"
+      value: "49.288"
+  templates:
+  - name: precipitations
+    steps:
+    - - name: fetch-data
+        template: node-fetch-data
+        arguments:
+          parameters:
+          - name: "x"
+            value: "{{workflow.parameters.x}}"
+          - name: "y"
+            value: "{{workflow.parameters.y}}"
+    - - name: prediction
+        template: node-prediction
+        arguments:
+          parameters:
+          - name: inputs
+            value: "{{steps.fetch-data.outputs.parameters.fetch-values}}"
+    - - name: profit
+        template: node-profit
+        arguments:
+          parameters:
+          - name: inputs
+            value: "{{steps.prediction.outputs.parameters.calculated-values}}"
+    - - name: stac
+        template: node-stac
+        arguments:
+          parameters:
+          - name: inputs
+            value: "{{steps.prediction.outputs.parameters.calculated-values}}"
+
+  - name: node-fetch-data
+    inputs:
+      parameters:
+      - name: "x"
+      - name: "y"
+    container: 
+      image: harbor.mkube.dec.earthdaily.com/test/precipitations:0.0.8
+      imagePullPolicy: Always
+      command:
+        - python
+        - -m
+        - fetch_data
+        - --pos_x
+        - "{{inputs.parameters.x}}"
+        - --pos_y
+        - "{{inputs.parameters.y}}"
+      env:
+        - name: PATH
+          value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        - name: PYTHONPATH
+          value: /app
+    outputs:
+      artifacts:
+      - name: fetch-values-artifacts
+        path: /app/plots
+        archive:
+          none: {}
+        s3:
+          key: "processing-results/{{workflow.name}}"
+        artifactGC:
+          strategy: Never
+      parameters:
+        - name: fetch-values
+          valueFrom:
+            path: /app/data/values.json
+    
+  - name: node-prediction
+    inputs:
+      parameters:
+      - name: inputs
+    container:
+      image: harbor.mkube.dec.earthdaily.com/test/precipitations:0.0.8
+      imagePullPolicy: Always
+      command: 
+        - python
+        - -m
+        - prediction
+        - --input_data
+        - "{{inputs.parameters.inputs}}"
+      env:
+        - name: PATH
+          value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        - name: PYTHONPATH
+          value: /app
+    outputs:
+      artifacts:
+      - name: prediction-artifacts
+        path: /app/plots
+        archive:
+          none: {}
+        s3:
+          key: "processing-results/{{workflow.name}}"
+        artifactGC:
+          strategy: Never
+      parameters:
+        - name: calculated-values
+          valueFrom:
+            path: /app/data/values.json
+
+  - name: node-profit
+    inputs:
+      parameters:
+      - name: inputs
+      - name: job_information
+        valueFrom:
+          configMapKeyRef:
+            name: environment-variables
+            key: job_information
+    container:
+      image: harbor.mkube.dec.earthdaily.com/test/precipitations:0.0.8
+      imagePullPolicy: Always
+      command: 
+        - python
+        - -m
+        - profit
+        - --input_data
+        - "{{inputs.parameters.inputs}}"
+      env:
+        - name: PATH
+          value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        - name: PYTHONPATH
+          value: /app
+        - name: JOB_INFORMATION
+          value: "{{inputs.parameters.job_information}}"
+        - name: WORKFLOW_ID
+          value: "{{workflow.name}}"
+    outputs:
+      artifacts:
+      - name: profit-artifacts
+        path: /app/plots
+        archive:
+          none: {}
+        s3:
+          key: "processing-results/{{workflow.name}}"
+        artifactGC:
+          strategy: Never
+
+  - name: node-stac
+    inputs:
+      parameters:
+      - name: inputs
+      - name: job_information
+        valueFrom:
+          configMapKeyRef:
+            name: environment-variables
+            key: job_information
+    container:
+      image: harbor.mkube.dec.earthdaily.com/test/precipitations:0.0.8
+      imagePullPolicy: Always
+      command: 
+        - python
+        - -m
+        - stac
+        - --input_data
+        - "{{inputs.parameters.inputs}}"
+      env:
+        - name: PATH
+          value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        - name: PYTHONPATH
+          value: /app
+        - name: JOB_INFORMATION
+          value: "{{inputs.parameters.job_information}}"
+        - name: WORKFLOW_ID
+          value: "{{workflow.name}}"
+    outputs:
+      artifacts:
+      - name: stac-artifacts
+        path: /app/stac-items
+        archive:
+          none: {}
+        s3:
+          key: "processing-results/{{workflow.name}}"
+        artifactGC:
+          strategy: Never
+    

@@ -1,0 +1,214 @@
+parameters:
+  - name: "x"
+    title: "X coordinate"
+    description: "X coordinate of the location"
+    input_type: string
+  - name: "y"
+    title: "Y coordinate"
+    description: "Y coordinate of the location"
+    input_type: string
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: precipitations-profit
+  version: 1.0.3
+  title: "Use case: anticipated profits based on precipitations probability"
+  description: "Weather, climate and water data from MSC GeoMet geospatial web services can be easily used to predict demand associated with certain products or services. This usage example show how to extract and process raw meteorological data with Python programming language to create a tool to calculate anticipated profits from sales depending on meteorological conditions."
+spec:
+  entrypoint: precipitations
+  templates:
+  - name: precipitations
+    steps:
+    - - name: fetch-data
+        template: node-fetch-data
+        arguments:
+          parameters:
+          - name: "x"
+            value: "{{workflow.parameters.x}}"
+          - name: "y"
+            value: "{{workflow.parameters.y}}"
+    - - name: prediction
+        template: node-prediction
+        arguments:
+          parameters:
+          - name: inputs
+            value: "{{steps.fetch-data.outputs.parameters.fetch-values}}"
+    - - name: profit
+        template: node-profit
+        arguments:
+          parameters:
+          - name: inputs
+            value: "{{steps.prediction.outputs.parameters.calculated-values}}"
+    - - name: stac
+        template: node-stac
+        arguments:
+          parameters:
+          - name: inputs
+            value: "{{steps.prediction.outputs.parameters.calculated-values}}"
+
+  - name: node-fetch-data
+    inputs:
+      parameters:
+      - name: "x"
+      - name: "y"
+    container: 
+      image: harbor.dec.alpha.canada.ca/bigweather/precipitations:0.0.10
+      imagePullPolicy: IfNotPresent
+      command:
+        - python
+        - -m
+        - fetch_data
+        - --pos_x
+        - "{{inputs.parameters.x}}"
+        - --pos_y
+        - "{{inputs.parameters.y}}"
+      env:
+        - name: PATH
+          value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        - name: PYTHONPATH
+          value: /app
+      resources:
+        limits:
+          cpu: "1"
+          memory: "1Gi"
+        requests:
+          cpu: "500m"
+          memory: "500Mi"
+    outputs:
+      artifacts:
+      - name: fetch-values-artifacts
+        path: /app/plots
+        archive:
+          none: {}
+        s3:
+          key: "processing-results/{{workflow.name}}"
+        artifactGC:
+          strategy: Never
+      parameters:
+        - name: fetch-values
+          valueFrom:
+            path: /app/data/values.json
+    
+  - name: node-prediction
+    inputs:
+      parameters:
+      - name: inputs
+    container:
+      image: harbor.dec.alpha.canada.ca/bigweather/precipitations:0.0.10
+      imagePullPolicy: IfNotPresent
+      command: 
+        - python
+        - -m
+        - prediction
+        - --input_data
+        - "{{inputs.parameters.inputs}}"
+      env:
+        - name: PATH
+          value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        - name: PYTHONPATH
+          value: /app
+      resources:
+        limits:
+          cpu: "1"
+          memory: "1Gi"
+        requests:
+          cpu: "500m"
+          memory: "500Mi"
+    outputs:
+      artifacts:
+      - name: prediction-artifacts
+        path: /app/plots
+        archive:
+          none: {}
+        s3:
+          key: "processing-results/{{workflow.name}}"
+        artifactGC:
+          strategy: Never
+      parameters:
+        - name: calculated-values
+          valueFrom:
+            path: /app/data/values.json
+
+  - name: node-profit
+    inputs:
+      parameters:
+      - name: inputs
+    container:
+      image: harbor.dec.alpha.canada.ca/bigweather/precipitations:0.0.10
+      imagePullPolicy: IfNotPresent
+      command: 
+        - python
+        - -m
+        - profit
+        - --input_data
+        - "{{inputs.parameters.inputs}}"
+      env:
+        - name: PATH
+          value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        - name: PYTHONPATH
+          value: /app
+        - name: WORKFLOW_ID
+          value: "{{workflow.name}}"
+      resources:
+        limits:
+          cpu: "1"
+          memory: "1Gi"
+        requests:
+          cpu: "500m"
+          memory: "500Mi"
+    outputs:
+      artifacts:
+      - name: profit-artifacts
+        path: /app/plots
+        archive:
+          none: {}
+        s3:
+          key: "processing-results/{{workflow.name}}"
+        artifactGC:
+          strategy: Never
+
+  - name: node-stac
+    inputs:
+      parameters:
+      - name: inputs
+      - name: job_information
+        valueFrom:
+          configMapKeyRef:
+            name: environment-variables
+            key: job_information
+    container:
+      image: harbor.dec.alpha.canada.ca/bigweather/precipitations:0.0.10
+      imagePullPolicy: IfNotPresent
+      command: 
+        - python
+        - -m
+        - stac
+        - --input_data
+        - "{{inputs.parameters.inputs}}"
+      env:
+        - name: PATH
+          value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        - name: PYTHONPATH
+          value: /app
+        - name: JOB_INFORMATION
+          value: "{{inputs.parameters.job_information}}"
+        - name: WORKFLOW_ID
+          value: "{{workflow.name}}"
+      resources:
+        limits:
+          cpu: "1"
+          memory: "1Gi"
+        requests:
+          cpu: "500m"
+          memory: "500Mi"
+    outputs:
+      artifacts:
+      - name: stac-artifacts
+        path: /app/stac-items
+        archive:
+          none: {}
+        s3:
+          key: "processing-results/{{workflow.name}}"
+        artifactGC:
+          strategy: Never
+    

@@ -1,0 +1,6 @@
+boto3
+docker
+jupyter
+python-dotenv
+PyYAML
+requests
